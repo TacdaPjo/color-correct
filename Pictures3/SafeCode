@@ -1,0 +1,101 @@
+## Author - Johan Elfing ##
+import warnings
+
+warnings.filterwarnings('ignore')
+
+import numpy as np
+import os
+import colour.utilities
+from PIL import Image as im
+from colour_checker_detection import (detect_colour_checkers_segmentation, SETTINGS_SEGMENTATION_COLORCHECKER_CLASSIC)
+import gc
+
+# Directory and pattern
+image_directory = 'C:/Users/Johan/color-correct/Pictures3'
+image_pattern = 'IMG_8177.png'
+image_path = os.path.join(image_directory, image_pattern)
+
+# Load the image from the specified path
+image = im.open(image_path)
+image = np.asarray(image, dtype=np.float32) / 255.0  # Normalize the image and use float32 to save memory
+image = colour.cctf_decoding(image)
+#colour.plotting.plot_image(colour.cctf_encoding(image), title='Original Image')
+
+# Update ColorChecker Classic settings
+SETTINGS_SEGMENTATION_COLORCHECKER_CLASSIC.update(
+    {
+        "aspect_ratio_minimum": 1.2,  # Adjust as needed
+        "aspect_ratio_maximum": 2.0,  # Adjust as needed
+        "swatches_count_minimum": 18,  # Adjust as needed
+        "swatches_count_maximum": 24,  # Adjust as needed
+        "swatch_minimum_area_factor": 150,  # Adjust as needed
+        "swatch_contour_scale": 1.5,  # Adjust as needed
+    }
+)
+
+SWATCHES = []
+colour_checker_data = detect_colour_checkers_segmentation(
+    image, additional_data=True, show=True, **SETTINGS_SEGMENTATION_COLORCHECKER_CLASSIC)
+
+if colour_checker_data:
+    for data in colour_checker_data:
+        swatch_colours, swatch_masks, colour_checker_image = (data.values)
+        SWATCHES.append(swatch_colours)
+
+        masks_i = np.zeros(colour_checker_image.shape, dtype=np.float32)  # Use float32 to save memory
+        for i, mask in enumerate(swatch_masks):
+            masks_i[mask[0]:mask[1], mask[2]:mask[3], ...] = 1
+
+        #colour.plotting.plot_image(colour.cctf_encoding(np.clip(colour_checker_image + masks_i * 0.25, 0, 1)))
+
+D65 = colour.CCS_ILLUMINANTS['CIE 1931 2 Degree Standard Observer']['D65']
+REFERENCE_COLOUR_CHECKER = colour.CCS_COLOURCHECKERS[
+    'ColorChecker24 - After November 2014']
+colour_checker_rows = REFERENCE_COLOUR_CHECKER.rows
+colour_checker_columns = REFERENCE_COLOUR_CHECKER.columns
+
+REFERENCE_SWATCHES = colour.XYZ_to_RGB(
+    colour.xyY_to_XYZ(list(REFERENCE_COLOUR_CHECKER.data.values())),
+    'sRGB', REFERENCE_COLOUR_CHECKER.illuminant)
+
+for i, swatches in enumerate(SWATCHES):
+    # swatches_xyY = colour.XYZ_to_xyY(colour.RGB_to_XYZ(
+    #     swatches, 'sRGB', D65))
+    #
+    # colour_checker = colour.characterisation.ColourChecker(
+    #     os.path.basename(image_path),
+    #     dict(zip(REFERENCE_COLOUR_CHECKER.data.keys(), swatches_xyY)),
+    #     D65, colour_checker_rows, colour_checker_columns)
+
+    #colour.plotting.plot_multi_colour_checkers([REFERENCE_COLOUR_CHECKER, colour_checker])
+
+    # swatches_f = colour.colour_correction(swatches, swatches, REFERENCE_SWATCHES)
+    # swatches_f_xyY = colour.XYZ_to_xyY(colour.RGB_to_XYZ(
+    #     swatches_f, 'sRGB', D65))
+    # colour_checker = colour.characterisation.ColourChecker(
+    #     '{0} - CC'.format(os.path.basename(image_path)),
+    #     dict(zip(REFERENCE_COLOUR_CHECKER.data.keys(), swatches_f_xyY)),
+    #     D65, colour_checker_rows, colour_checker_columns)
+
+    #colour.plotting.plot_multi_colour_checkers([REFERENCE_COLOUR_CHECKER, colour_checker])
+
+    colour.plotting.plot_image(colour.cctf_encoding(
+        colour.colour_correction(
+            image, swatches, REFERENCE_SWATCHES)))
+
+# corrected_image = colour.cctf_encoding(
+#     colour.colour_correction(
+#         image, swatches, REFERENCE_SWATCHES))
+#
+# corrected_image_path = os.path.join(image_directory, 'corrected_image.png')
+# corrected_image_pil = im.fromarray((corrected_image * 255).astype(np.uint8))
+# corrected_image_pil.save(corrected_image_path)
+# print(f"Corrected image saved at {corrected_image_path}")
+
+# # Clear memory for the next iteration
+# del masks_i, swatches, swatches_f, colour_checker_image, corrected_image
+# gc.collect()
+#
+# # Final garbage collection
+# del image, SWATCHES, colour_checker_data
+# gc.collect()
